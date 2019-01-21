@@ -12,7 +12,7 @@
 #  Dependencies:
 #     This code is developed with Python 3.5.2, running on Ubuntu
 #     16.04 LTS, tested on Virtualenv 16.2.0
-#     - OpenCV 4.0.2
+#     - OpenCV 4.0.1
 #     - dlib
 #     - Keras
 #     - skit-learn
