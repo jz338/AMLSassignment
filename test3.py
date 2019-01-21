@@ -5,6 +5,8 @@ import cv2
 import dlib
 import math
 from sklearn.svm import SVC
+import csv
+import sys
 
 class face_detection:
    def __init__(self, img_dir):
@@ -104,7 +106,7 @@ class face_detection:
         gender_labels:      an array containing the gender label (male=0 and female=1) for each image in
                             which a face was detected
       """
-      image_paths = [os.path.join(self.img_dir, str(i)+'.png') for i in range(1,5001)]
+      image_paths = [os.path.join(self.img_dir, str(i)+'.png') for i in range(1,len(os.listdir(self.img_dir))+1)]
       target_size = None
       with open('attribute_list.csv') as csvfile:
          lines = csvfile.readlines()
@@ -127,7 +129,7 @@ class face_detection:
          vect_LMs = {}
          for img_path in image_paths:
             file_name= img_path.split('.')[0].split('/')[-1]
-            #print(file_name)
+            print(file_name)
             # load image
             img = image.img_to_array(
                image.load_img(img_path,
@@ -144,70 +146,124 @@ class face_detection:
 
 
 class SVC_trainer:
-   def __init__(self, test_ratio=0.2, d_path="dataset", attr="smiling"):
+   def __init__(self, test_ratio=0.2, d_path="dataset"):
       self.test_ratio = test_ratio
       self.d_path = d_path
       self.datasize = len(os.listdir(self.d_path))
-      self.training_attr = attr
       self.clf = SVC(kernel='linear', probability=True, tol=1e-3)
 
    def rand_trainingset(self):
       dataidx = list(range(1, self.datasize+1))
       np.random.shuffle(dataidx)
       test_size = int(self.datasize*self.test_ratio)
-      self.test_idx = dataidx[1:test_size+1]
+      self.val_idx = dataidx[1:test_size+1]
       self.training_idx = dataidx[test_size+1:self.datasize+1]
 
-   def prep_data(self):
+   def prep_training_data(self):
       fd = face_detection("dataset")
-      print("Preprocessing....")
-      lm_features, vect_LMs, attrList = fd.extract_features_labels()
+      print("Preprocessing training_data....")
+      self.lm_features, self.vect_LMs, self.attrList = fd.extract_features_labels()
+
+   def assign_training_set(self, attr):
       training_data = []
       training_labels = []
       prediction_data = []
       prediction_labels = []
+      self.val_files = []
       for i in self.training_idx:
          key = str(i)
-         if lm_features[key] is not None:
-            training_data.append(vect_LMs[key])
-            training_labels.append(attrList[key][self.training_attr])
-      for i in self.test_idx:
+         if self.lm_features[key] is not None:
+            training_data.append(self.vect_LMs[key])
+            training_labels.append(self.attrList[key][attr])
+      for i in self.val_idx:
          key = str(i)
-         if lm_features[key] is not None:
-            prediction_data.append(vect_LMs[key])
-            prediction_labels.append(attrList[key][self.training_attr])
+         if self.lm_features[key] is not None:
+            self.val_files.append(key)
+            prediction_data.append(self.vect_LMs[key])
+            prediction_labels.append(self.attrList[key][attr])
       return training_data, training_labels, prediction_data, prediction_labels
 
-   def trainingNvalidation(self):
-      td, tl, pd, pl = self.prep_data()
+   def trainingNvalidation(self, attr):
+      td, tl, pd, pl = self.assign_training_set(attr)
       npar_td = np.array(td)
       npar_tl = np.array(tl)
       print("Training...")
       self.clf.fit(npar_td, npar_tl)
       npar_pd = np.array(pd)
       self.npar_pl = np.array(pl)
+      print("Validating.....")
       self.pred_labels = self.clf.predict(npar_pd)
       self.pred_lin = self.clf.score(npar_pd, pl)
       print(self.pred_lin)
       print("linear SVM: {}".format(self.pred_lin))
 
+   def prep_testing_data(self):
+      t_fd = face_detection("testing_dataset")
+      print("Preprocessing testing dataset....")
+      self.t_lm_features, self.t_vect_LMs, self.t_attrList = t_fd.extract_features_labels()
 
-def test():
-   fd = face_detection("dataset")
-   img = image.img_to_array(
-      image.load_img("dataset/1.png",
-         target_size=None,
-         interpolation='bicubic'))
-   features, _ = fd.run_dlib_shape(img)
+   def testing(self, attr):
+      testing_data = []
+      testing_labels = []
+      self.test_files = []
+      self.test_idx = list(range(1, len(os.listdir("testing_dataset"))+1))
+      for i in self.test_idx:
+         key = str(i)
+         if self.t_lm_features[key] is not None:
+            self.test_files.append(key)
+            testing_data.append(self.t_vect_LMs[key])
+            testing_labels.append(self.t_attrList[key][attr])
+      npar_testd = np.array(testing_data)
+      self.npar_testl = np.array(testing_labels)
+      print("Testing model.....")
+      self.test_pred_labels = self.clf.predict(npar_testd)
+      self.test_lin = self.clf.score(npar_testd, testing_labels)
+
+
+
+   def write_csv(self, test_num):
+      print("Writing CSVs...")
+      writepath = os.path.join("lin_svc_result", "validation_"+test_num+".csv")
+      with open(writepath, 'w') as csvfile:
+         writer = csv.writer(csvfile, delimiter=',')
+         writer.writerow([self.pred_lin, ''])
+         for idx, file in enumerate(self.val_files):
+            file_name = file + '.png'
+            writer.writerow([file_name, self.pred_labels[idx]])
+
+      writepath = os.path.join("lin_svc_result", "test_"+test_num+".csv")
+      with open(writepath, 'w') as csvfile:
+         writer = csv.writer(csvfile, delimiter=',')
+         writer.writerow([self.test_lin, ''])
+         for idx, file in enumerate(self.test_files):
+            file_name = file + '.png'
+            writer.writerow([file_name, self.test_pred_labels[idx]])
+
+
+
 
 def main():
    trainer = SVC_trainer()
+   trainer.prep_training_data()
+   trainer.prep_testing_data()
    trainer.rand_trainingset()
-   trainer.trainingNvalidation()
+   trainer.trainingNvalidation("smiling")
+   trainer.testing("smiling")
+   trainer.write_csv("1")
+   trainer.trainingNvalidation("young")
+   trainer.testing("young")
+   trainer.write_csv("2")
+   trainer.trainingNvalidation("eye_glasses")
+   trainer.testing("eye_glasses")
+   trainer.write_csv("3")
+   trainer.trainingNvalidation("human")
+   trainer.testing("human")
+   trainer.write_csv("4")
    #test()
    #fd = face_detection("dataset")
    #fd.extract_features_labels()
    #nr = noise_removal()
    #nr.attrList_validation(begin = 1, end = 51)
 
-if __name__ == "__main__": main()
+if __name__ == "__main__": 
+   main()
