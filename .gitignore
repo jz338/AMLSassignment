@@ -1,3 +1,4 @@
 dataset/*
 *.csv
 *.jpg
+__pycache__/*

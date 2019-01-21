@@ -4,6 +4,7 @@ from keras.preprocessing import image
 import cv2
 import dlib
 import math
+from sklearn.svm import SVC
 
 class face_detection:
    def __init__(self, img_dir):
@@ -69,11 +70,7 @@ class face_detection:
       num_faces = len(rects)
       #print(num_faces)
       if num_faces == 0:
-         return None, resized_image, None
-
-      if num_faces > 1:
-         print(num_faces)
-      
+         return None, resized_image, None    
 
       face_areas = np.zeros((1, num_faces))
       face_shapes = np.zeros((136, num_faces), dtype=np.int64)
@@ -130,7 +127,7 @@ class face_detection:
          vect_LMs = {}
          for img_path in image_paths:
             file_name= img_path.split('.')[0].split('/')[-1]
-            print(file_name)
+            #print(file_name)
             # load image
             img = image.img_to_array(
                image.load_img(img_path,
@@ -147,10 +144,12 @@ class face_detection:
 
 
 class SVC_trainer:
-   def __init__(self, test_ratio=0.2, d_path="dataset"):
+   def __init__(self, test_ratio=0.2, d_path="dataset", attr="smiling"):
       self.test_ratio = test_ratio
       self.d_path = d_path
       self.datasize = len(os.listdir(self.d_path))
+      self.training_attr = attr
+      self.clf = SVC(kernel='linear', probability=True, tol=1e-3)
 
    def rand_trainingset(self):
       dataidx = list(range(1, self.datasize+1))
@@ -159,6 +158,38 @@ class SVC_trainer:
       self.test_idx = dataidx[1:test_size+1]
       self.training_idx = dataidx[test_size+1:self.datasize+1]
 
+   def prep_data(self):
+      fd = face_detection("dataset")
+      print("Preprocessing....")
+      lm_features, vect_LMs, attrList = fd.extract_features_labels()
+      training_data = []
+      training_labels = []
+      prediction_data = []
+      prediction_labels = []
+      for i in self.training_idx:
+         key = str(i)
+         if lm_features[key] is not None:
+            training_data.append(vect_LMs[key])
+            training_labels.append(attrList[key][self.training_attr])
+      for i in self.test_idx:
+         key = str(i)
+         if lm_features[key] is not None:
+            prediction_data.append(vect_LMs[key])
+            prediction_labels.append(attrList[key][self.training_attr])
+      return training_data, training_labels, prediction_data, prediction_labels
+
+   def trainingNvalidation(self):
+      td, tl, pd, pl = self.prep_data()
+      npar_td = np.array(td)
+      npar_tl = np.array(tl)
+      print("Training...")
+      self.clf.fit(npar_td, npar_tl)
+      npar_pd = np.array(pd)
+      self.npar_pl = np.array(pl)
+      self.pred_labels = self.clf.predict(npar_pd)
+      self.pred_lin = self.clf.score(npar_pd, pl)
+      print(self.pred_lin)
+      print("linear SVM: {}".format(self.pred_lin))
 
 
 def test():
@@ -170,9 +201,12 @@ def test():
    features, _ = fd.run_dlib_shape(img)
 
 def main():
+   trainer = SVC_trainer()
+   trainer.rand_trainingset()
+   trainer.trainingNvalidation()
    #test()
-   fd = face_detection("dataset")
-   fd.extract_features_labels()
+   #fd = face_detection("dataset")
+   #fd.extract_features_labels()
    #nr = noise_removal()
    #nr.attrList_validation(begin = 1, end = 51)
 
