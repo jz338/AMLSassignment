@@ -1,3 +1,8 @@
+#####################################################################################
+#  Title       : svm_ml_trainer.py                                       
+#  Author      : J Zhao                                              
+#  Function    : Preprocesses, trains, validates and tests SVC models                                  
+#####################################################################################
 import os
 import numpy as np
 from keras.preprocessing import image
@@ -6,10 +11,17 @@ import dlib
 import math
 from sklearn.svm import SVC
 import csv
-import sys
-
+#####################################################################################
 class face_detection:
+   """
+   Face detection preprocessing class
+   Arguments: 
+      img_dir -- dataset directory path
+   """
    def __init__(self, img_dir):
+      """
+      Object constructor, imports dlib libary to be used for facial landmark detection
+      """
       self.detector = dlib.get_frontal_face_detector()
       self.predictor = dlib.shape_predictor('data/shape_predictor_68_face_landmarks.dat')
       self.img_dir = img_dir
@@ -39,6 +51,13 @@ class face_detection:
       return (x, y, w, h)
 
    def process_landmarks(self, shape):
+      """
+      Vectorise landmark data
+      arguments:
+         shape -- face shape landmarks data
+      return:
+         vectorised_landmarks
+      """
       xlist = []
       ylist = []
       for coord in shape:
@@ -60,8 +79,18 @@ class face_detection:
       return vectorised_landmarks
 
    def run_dlib_shape(self, image):
-      # in this function we load the image, detect the landmarks of the face, and then return the image and the landmarks
-      # load the input image, resize it, and convert it to grayscale
+      """
+      Face and landmark detection takes place here.
+      Take an image, resize and converts grayscale, before looking for faces
+         and landmark features.
+         Takes the largest face detected and vectorise it.
+      argument:
+         image -- image path
+      return:
+         dlibout -- landmark data
+         resized_image
+         vectorised_landmarks
+      """
       resized_image = image.astype('uint8')
 
       gray = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
@@ -99,12 +128,15 @@ class face_detection:
 
    def extract_features_labels(self):
       """
-      This funtion extracts the landmarks features for all images in the folder 'dataset/celeba'.
-      It also extract the gender label for each image.
+      This funtion finds all the image files in the pointed dataset directory.
+         processes the image to see if face has detected, and process the face
+         into landmarks. These data are all collected to dictionaries.
+      This function also takes the labeled csv file to store the information into
+         a dictionary
       :return:
-        landmark_features:  an array containing 68 landmark points for each image in which a face was detected
-        gender_labels:      an array containing the gender label (male=0 and female=1) for each image in
-                            which a face was detected
+        all_features:  a dict of all landmark datas
+        attrList:      a dict of all the attribute labels extracted from csv
+        vect_LMs:      a dict of all the vectorised landmarks
       """
       image_paths = [os.path.join(self.img_dir, str(i)+'.png') for i in range(1,len(os.listdir(self.img_dir))+1)]
       target_size = None
@@ -144,15 +176,29 @@ class face_detection:
 
       return all_features, vect_LMs, attrList
 
-
+#####################################################################################
 class SVC_trainer:
+   """
+   SVC_trainer object.  To hold all trainer data in one object for code readability
+      and ease of development and testing
+   """
    def __init__(self, test_ratio=0.2, d_path="dataset"):
+      """
+      Constructor function
+      arguments:
+         test_ratio -- validation to all ratio
+         d_path -- dataset directory, default to "dataset"
+      """
       self.test_ratio = test_ratio
       self.d_path = d_path
       self.datasize = len(os.listdir(self.d_path))
       self.clf = SVC(kernel='linear', probability=True, tol=1e-3)
 
    def rand_trainingset(self):
+      """
+      Creates index from 1 to size of the data, randomnise order and
+         take first 1/5 for validation, remaining for training
+      """
       dataidx = list(range(1, self.datasize+1))
       np.random.shuffle(dataidx)
       test_size = int(self.datasize*self.test_ratio)
@@ -160,11 +206,17 @@ class SVC_trainer:
       self.training_idx = dataidx[test_size+1:self.datasize+1]
 
    def prep_training_data(self):
+      # Preprocess training & validation images
       fd = face_detection("dataset")
       print("Preprocessing training_data....")
       self.lm_features, self.vect_LMs, self.attrList = fd.extract_features_labels()
 
    def assign_training_set(self, attr):
+      """
+      Using preprocessing and randonised index to reorgnise training and validation set
+      argument:
+         attr -- attribute being trained for
+      """
       training_data = []
       training_labels = []
       prediction_data = []
@@ -184,6 +236,10 @@ class SVC_trainer:
       return training_data, training_labels, prediction_data, prediction_labels
 
    def trainingNvalidation(self, attr):
+      """
+      Training and validation using SVM from sklearn
+      Predicted labels are compared target labels to score
+      """
       td, tl, pd, pl = self.assign_training_set(attr)
       npar_td = np.array(td)
       npar_tl = np.array(tl)
@@ -198,11 +254,13 @@ class SVC_trainer:
       print("linear SVM: {}".format(self.pred_lin))
 
    def prep_testing_data(self):
+      # Preprocessing test data
       t_fd = face_detection("testing_dataset")
       print("Preprocessing testing dataset....")
       self.t_lm_features, self.t_vect_LMs, self.t_attrList = t_fd.extract_features_labels()
 
    def testing(self, attr):
+      # Perform test on testing data using trained model
       testing_data = []
       testing_labels = []
       self.test_files = []
@@ -219,9 +277,14 @@ class SVC_trainer:
       self.test_pred_labels = self.clf.predict(npar_testd)
       self.test_lin = self.clf.score(npar_testd, testing_labels)
 
-
-
    def write_csv(self, test_num):
+      """
+      Write result of validation and testing into csv files
+      in the format of:
+      <score>
+      <filename1>,<predicted_label1>
+      <filename2>,<predicted_label2>
+      """
       print("Writing CSVs...")
       writepath = os.path.join("lin_svc_result", "validation_"+test_num+".csv")
       with open(writepath, 'w') as csvfile:
@@ -239,23 +302,29 @@ class SVC_trainer:
             file_name = file + '.png'
             writer.writerow([file_name, self.test_pred_labels[idx]])
 
-
-
+#####################################################################################
 
 def main():
+   # Initialise trainer object with default dataset directory
    trainer = SVC_trainer()
+   # Preprocess training images (5000) and test images (100)
    trainer.prep_training_data()
    trainer.prep_testing_data()
+   # Randomly allocate training images for training or validation
    trainer.rand_trainingset()
+   # Training emotion detection model
    trainer.trainingNvalidation("smiling")
    trainer.testing("smiling")
    trainer.write_csv("1")
+   # Training age detection model
    trainer.trainingNvalidation("young")
    trainer.testing("young")
    trainer.write_csv("2")
+   # Training glasses detection model
    trainer.trainingNvalidation("eye_glasses")
    trainer.testing("eye_glasses")
    trainer.write_csv("3")
+   # Training human/cartoon distinguising model
    trainer.trainingNvalidation("human")
    trainer.testing("human")
    trainer.write_csv("4")
